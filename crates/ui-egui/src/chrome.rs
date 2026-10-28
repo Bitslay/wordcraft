@@ -637,6 +637,10 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                     ui.ctx().data_mut(|d| d.insert_temp(pending_id, now));
                     ui.ctx().request_repaint_after(std::time::Duration::from_millis(350));
                 }
+                let outside_press = ui.input(|i| i.pointer.any_pressed() && i.pointer.latest_pos().is_some_and(|p| !rect.contains(p)));
+                if outside_press {
+                    ui.ctx().data_mut(|d| d.remove::<f64>(pending_id));
+                }
                 if let Some(t_click) = ui.ctx().data(|d| d.get_temp::<f64>(pending_id)) {
                     let now = ui.input(|i| i.time);
                     if now - t_click >= 0.35 {

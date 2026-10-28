@@ -492,3 +492,55 @@ fn document_title_double_click_maximizes_without_rename() {
     assert!(cmds.contains(&egui::ViewportCommand::Maximized(true)), "cmds: {cmds:?}");
     assert!(a.dialog.is_none(), "Double-clicking document title must not open rename dialog");
 }
+
+/// #4311: An outside press before the double-click timeout cancels the pending rename.
+#[test]
+fn outside_press_cancels_pending_rename() {
+    let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+    let (ctx, mut n) = (ctx(), 0);
+    let title_pos = egui::pos2(720.0, 19.0);
+    let outside_pos = egui::pos2(200.0, 19.0);
+
+    let step = |n: &mut u32, time_sec: f64, events: Vec<egui::Event>, a: &mut WordApp| {
+        *n += 1;
+        let input = egui::RawInput {
+            time: Some(time_sec),
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1440.0, 900.0))),
+            events,
+            ..Default::default()
+        };
+        let mut out = ctx.run_ui(input, |ui| title_bar(a, ui));
+        out.textures_delta.clear();
+    };
+
+    // Click title at t = 0.0s..0.10s
+    step(&mut n, 0.0, vec![egui::Event::PointerMoved(title_pos)], &mut a);
+    step(
+        &mut n,
+        0.05,
+        vec![egui::Event::PointerButton { pos: title_pos, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() }],
+        &mut a,
+    );
+    step(
+        &mut n,
+        0.10,
+        vec![egui::Event::PointerButton { pos: title_pos, button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() }],
+        &mut a,
+    );
+
+    // Press outside title at t = 0.20s (before 0.35s expires)
+    step(
+        &mut n,
+        0.20,
+        vec![
+            egui::Event::PointerMoved(outside_pos),
+            egui::Event::PointerButton { pos: outside_pos, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() },
+        ],
+        &mut a,
+    );
+
+    // Advance time past 0.50s
+    step(&mut n, 0.50, vec![], &mut a);
+
+    assert!(a.dialog.is_none(), "Outside press must cancel the pending rename");
+}
