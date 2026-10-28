@@ -460,3 +460,35 @@ fn title_bar_drag_sends_start_drag() {
     let dragged = h.output().viewport_output.values().flat_map(|v| v.commands.iter()).any(|c| matches!(c, egui::ViewportCommand::StartDrag));
     assert!(dragged, "Dragging title bar initiates StartDrag");
 }
+
+/// #4311: Double-clicking the document title toggles maximize and does not trigger rename.
+#[test]
+fn document_title_double_click_maximizes_without_rename() {
+    let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+    let (ctx, mut n) = (ctx(), 0);
+    let title_pos = egui::pos2(720.0, 19.0);
+    let button =
+        |pressed| egui::Event::PointerButton { pos: title_pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+
+    let step = |n: &mut u32, events: Vec<egui::Event>, a: &mut WordApp| {
+        *n += 1;
+        let input = egui::RawInput {
+            time: Some(f64::from(*n) / 60.0),
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1440.0, 900.0))),
+            events,
+            ..Default::default()
+        };
+        let mut out = ctx.run_ui(input, |ui| title_bar(a, ui));
+        out.textures_delta.clear();
+        out.viewport_output.get(&egui::ViewportId::ROOT).map(|v| v.commands.clone()).unwrap_or_default()
+    };
+    step(&mut n, vec![], &mut a);
+    step(&mut n, vec![egui::Event::PointerMoved(title_pos)], &mut a);
+    let mut cmds = Vec::new();
+    cmds.extend(step(&mut n, vec![button(true)], &mut a));
+    cmds.extend(step(&mut n, vec![button(false)], &mut a));
+    cmds.extend(step(&mut n, vec![button(true)], &mut a));
+    cmds.extend(step(&mut n, vec![button(false)], &mut a));
+    assert!(cmds.contains(&egui::ViewportCommand::Maximized(true)), "cmds: {cmds:?}");
+    assert!(a.dialog.is_none(), "Double-clicking document title must not open rename dialog");
+}

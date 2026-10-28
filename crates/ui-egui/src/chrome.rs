@@ -619,7 +619,9 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                 let rect = Rect::from_center_size(pos2(cx, full.center().y), vec2(w + 8.0, control_h));
                 let response = ui.interact(rect, ui.scope_id().with("document_name"), Sense::click_and_drag()).on_hover_text(tl!("Rename Document"));
                 response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &title));
+                let pending_id = ui.scope_id().with("pending_rename_at");
                 if response.drag_started() {
+                    ui.ctx().data_mut(|d| d.remove::<f64>(pending_id));
                     let max = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
                     if max {
                         ui.ctx().send_viewport_cmd(egui::ViewportCommand::Maximized(false));
@@ -627,10 +629,20 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
                 }
                 if response.double_clicked() {
+                    ui.ctx().data_mut(|d| d.remove::<f64>(pending_id));
                     let max = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::Maximized(!max));
                 } else if response.clicked() {
-                    let _ = app.run("file.rename", json!({}));
+                    let now = ui.input(|i| i.time);
+                    ui.ctx().data_mut(|d| d.insert_temp(pending_id, now));
+                    ui.ctx().request_repaint_after(std::time::Duration::from_millis(350));
+                }
+                if let Some(t_click) = ui.ctx().data(|d| d.get_temp::<f64>(pending_id)) {
+                    let now = ui.input(|i| i.time);
+                    if now - t_click >= 0.35 {
+                        ui.ctx().data_mut(|d| d.remove::<f64>(pending_id));
+                        let _ = app.run("file.rename", json!({}));
+                    }
                 }
 
                 paint_text(
