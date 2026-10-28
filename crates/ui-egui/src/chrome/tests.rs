@@ -307,3 +307,156 @@ fn clicking_the_autosave_label_toggles_autosave() {
     assert!(h.state().autosaves(), "and clicking it again turns it back on");
     let _ = std::fs::remove_dir_all(dir);
 }
+
+/// #4311: On non-macOS desktop (Windows, Linux), window controls (Minimize, Maximize, Close) are drawn
+/// on the unified title bar and dispatch viewport commands.
+#[test]
+fn window_controls_drawn_and_functional_on_non_macos() {
+    let a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+    assert!(!a.integrated_titlebar);
+    let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+        |ui, app: &mut WordApp| {
+            let ctx = ui.ctx().clone();
+            app.logic(&ctx);
+            if app.fonts_frames < 2 {
+                app.fonts_frames += 1;
+                return;
+            }
+            title_bar(app, ui);
+        },
+        a,
+    );
+    h.run_steps(4);
+    assert!(h.ctx.read_response(window_close_button_id()).is_some(), "Close button is drawn");
+    assert!(h.ctx.read_response(window_maximize_button_id()).is_some(), "Maximize button is drawn");
+    assert!(h.ctx.read_response(window_minimize_button_id()).is_some(), "Minimize button is drawn");
+
+    let click = |h: &mut egui_kittest::Harness<'_, WordApp>, id| {
+        let at = h.ctx.read_response(id).expect("button is drawn").rect.center();
+        h.event(egui::Event::PointerMoved(at));
+        h.step();
+        h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() });
+        h.step();
+        h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() });
+        h.step();
+    };
+
+    click(&mut h, window_minimize_button_id());
+    let minimized = h.output().viewport_output.values().flat_map(|v| v.commands.iter()).any(|c| matches!(c, egui::ViewportCommand::Minimized(true)));
+    assert!(minimized, "Minimize button sends ViewportCommand::Minimized");
+
+    click(&mut h, window_maximize_button_id());
+    let maximized = h.output().viewport_output.values().flat_map(|v| v.commands.iter()).any(|c| matches!(c, egui::ViewportCommand::Maximized(_)));
+    assert!(maximized, "Maximize button sends ViewportCommand::Maximized");
+
+    click(&mut h, window_close_button_id());
+    let closes = h.output().viewport_output.values().flat_map(|v| v.commands.iter()).any(|c| matches!(c, egui::ViewportCommand::Close));
+    assert!(closes, "Close button sends ViewportCommand::Close");
+}
+
+/// #4311: When integrated title bar is active (macOS), custom window caption controls are omitted so
+/// macOS native traffic lights remain unobstructed.
+#[test]
+fn window_controls_omitted_on_macos_integrated_titlebar() {
+    let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+    a.integrated_titlebar = true;
+    let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+        |ui, app: &mut WordApp| {
+            let ctx = ui.ctx().clone();
+            app.logic(&ctx);
+            if app.fonts_frames < 2 {
+                app.fonts_frames += 1;
+                return;
+            }
+            title_bar(app, ui);
+        },
+        a,
+    );
+    h.run_steps(4);
+    assert!(h.ctx.read_response(window_close_button_id()).is_none(), "Close button omitted on macOS");
+    assert!(h.ctx.read_response(window_maximize_button_id()).is_none(), "Maximize button omitted on macOS");
+    assert!(h.ctx.read_response(window_minimize_button_id()).is_none(), "Minimize button omitted on macOS");
+}
+
+/// #4311: Edge resize zones dispatch BeginResize when dragged.
+#[test]
+fn resize_zones_dispatch_begin_resize_on_drag() {
+    let ctx = ctx();
+    let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 600.0));
+    let mut input = egui::RawInput { screen_rect: Some(rect), ..Default::default() };
+    let _ = ctx.run_ui(input.clone(), |ui| {
+        resize_zones(ui);
+    });
+
+    // Drag the top edge (North)
+    let p1 = egui::pos2(500.0, 2.0);
+    let p2 = egui::pos2(500.0, 10.0);
+    input.events = vec![
+        egui::Event::PointerMoved(p1),
+        egui::Event::PointerButton { pos: p1, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() },
+        egui::Event::PointerMoved(p2),
+    ];
+    let mut out = ctx.run_ui(input, |ui| {
+        resize_zones(ui);
+    });
+    out.textures_delta.clear();
+    let cmds = out.viewport_output.get(&egui::ViewportId::ROOT).map(|v| v.commands.clone()).unwrap_or_default();
+    assert!(
+        cmds.contains(&egui::ViewportCommand::BeginResize(egui::ResizeDirection::North)),
+        "dragging north edge initiates BeginResize(North): {cmds:?}"
+    );
+}
+
+/// #4311: When window is maximized, resize zones are disabled.
+#[test]
+fn resize_zones_disabled_when_maximized() {
+    let ctx = ctx();
+    let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 600.0));
+    let mut input = egui::RawInput { screen_rect: Some(rect), ..Default::default() };
+    if let Some(v) = input.viewports.get_mut(&egui::ViewportId::ROOT) {
+        v.maximized = Some(true);
+    }
+    let p1 = egui::pos2(500.0, 2.0);
+    let p2 = egui::pos2(500.0, 10.0);
+    input.events = vec![
+        egui::Event::PointerMoved(p1),
+        egui::Event::PointerButton { pos: p1, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() },
+        egui::Event::PointerMoved(p2),
+    ];
+    let mut out = ctx.run_ui(input, |ui| {
+        resize_zones(ui);
+    });
+    out.textures_delta.clear();
+    let cmds = out.viewport_output.get(&egui::ViewportId::ROOT).map(|v| v.commands.clone()).unwrap_or_default();
+    assert!(!cmds.iter().any(|c| matches!(c, egui::ViewportCommand::BeginResize(_))), "maximized window must not begin resize: {cmds:?}");
+}
+
+/// #4311: Dragging on empty title bar space or document name sends StartDrag.
+#[test]
+fn title_bar_drag_sends_start_drag() {
+    let a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+    let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+        |ui, app: &mut WordApp| {
+            let ctx = ui.ctx().clone();
+            app.logic(&ctx);
+            if app.fonts_frames < 2 {
+                app.fonts_frames += 1;
+                return;
+            }
+            title_bar(app, ui);
+        },
+        a,
+    );
+    h.run_steps(4);
+
+    let empty = egui::pos2(500.0, 20.0);
+    h.event(egui::Event::PointerMoved(empty));
+    h.step();
+    h.event(egui::Event::PointerButton { pos: empty, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() });
+    h.step();
+    h.event(egui::Event::PointerMoved(empty + egui::vec2(20.0, 0.0)));
+    h.step();
+
+    let dragged = h.output().viewport_output.values().flat_map(|v| v.commands.iter()).any(|c| matches!(c, egui::ViewportCommand::StartDrag));
+    assert!(dragged, "Dragging title bar initiates StartDrag");
+}
