@@ -483,6 +483,7 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
     // macOS: shorter, so the system's traffic lights are centred in it; the tallest controls
     // shrink to keep a margin above and below them.
     let mac = app.integrated_titlebar;
+    let custom_caption = !mac && !cfg!(target_arch = "wasm32");
     let bar = app.mac_titlebar;
     let left = if mac { bar.content_left as i8 } else { 8 };
     let control_h = if mac { 22.0 } else { 26.0 };
@@ -493,7 +494,8 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
         .show(ui, |ui| {
             let full = ui.max_rect();
             // Drag the window by the title bar (integrated title bar on macOS and unified header on Windows/Linux).
-            let drag_rect = if !mac { Rect::from_min_max(full.min, pos2(full.max.x - 3.0 * WINDOW_CONTROL_WIDTH, full.max.y)) } else { full };
+            let drag_rect =
+                if custom_caption { Rect::from_min_max(full.min, pos2(full.max.x - 3.0 * WINDOW_CONTROL_WIDTH, full.max.y)) } else { full };
             let drag = ui.interact(drag_rect, ui.scope_id().with("title_drag"), Sense::click_and_drag());
             if drag.drag_started() {
                 let max = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
@@ -553,7 +555,7 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                 }
                 qat_end = ui.min_rect().max.x;
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if !mac {
+                    if custom_caption {
                         window_controls(ui, bar_h);
                     }
                     // Account / community.

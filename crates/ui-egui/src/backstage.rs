@@ -170,7 +170,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             _ => home_page(app, ui),
         });
     });
-    if !mac {
+    if !mac && !cfg!(target_arch = "wasm32") {
         egui::Area::new(egui::Id::unique("backstage_window_controls"))
             .fixed_pos(pos2(ui.ctx().content_rect().max.x - 3.0 * crate::chrome::WINDOW_CONTROL_WIDTH, 0.0))
             .order(egui::Order::Foreground)
