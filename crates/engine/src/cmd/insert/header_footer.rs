@@ -84,6 +84,7 @@ fn three_column_hf(s: &Session, style: &str) -> wordcraft_doc::Blocks {
     vec![std::sync::Arc::new(Block::Table(table)), para_block(Paragraph::new().styled(style))]
 }
 
+/// Insert or populate a header or footer with standard presets or custom text.
 pub(super) fn header_footer(s: &mut Session, v: &Value, header: bool) -> CmdResult {
     let focus = s.sel.focus.clone();
     if focus.story == StoryRef::Body
@@ -124,6 +125,7 @@ pub(super) fn header_footer(s: &mut Session, v: &Value, header: bool) -> CmdResu
     Ok(json!({"story": id}))
 }
 
+/// Edit the header or footer shown on a page (or the caret's section), creating it if missing.
 pub(super) fn edit_hf(s: &mut Session, v: &Value, header: bool) -> CmdResult {
     let mut page = p::u64(v, "page").map(|page| usize::try_from(page).unwrap_or(usize::MAX));
     if page.is_none() && s.sel.focus.story == StoryRef::Body {
@@ -171,6 +173,7 @@ fn shown_hf(s: &mut Session, page: usize, header: bool) -> Result<Option<u32>, C
     Ok(shown.filter(|id| s.doc.parts.contains_key(id)))
 }
 
+/// Create a new header or footer part for the current or specified page and move the caret into it.
 pub(super) fn create_hf(s: &mut Session, v: &Value, header: bool) -> CmdResult {
     let id = match p::u64(v, "page") {
         Some(page) => {
