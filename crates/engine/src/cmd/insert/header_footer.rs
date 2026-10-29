@@ -133,9 +133,6 @@ pub(super) fn edit_hf(s: &mut Session, v: &Value, header: bool) -> CmdResult {
         let focus = s.sel.focus.clone();
         page = s.layout().page_of(&focus);
     }
-    if let Some(page) = page {
-        s.page_hint = page;
-    }
     let shown = match page {
         Some(page) => shown_hf(s, page, header)?,
         None => {
@@ -154,6 +151,9 @@ pub(super) fn edit_hf(s: &mut Session, v: &Value, header: bool) -> CmdResult {
             found
         }
     };
+    if let Some(page) = page {
+        s.page_hint = page;
+    }
     let Some(id) = shown else {
         // None yet: made by the mutating command, so it is an undo step and protection applies.
         let cmd = if header { "insert.createHeader" } else { "insert.createFooter" };
@@ -178,8 +178,9 @@ pub(super) fn create_hf(s: &mut Session, v: &Value, header: bool) -> CmdResult {
     let id = match p::u64(v, "page") {
         Some(page) => {
             let page = usize::try_from(page).unwrap_or(usize::MAX);
+            let id = page_hf_part(s, page, header)?;
             s.page_hint = page;
-            page_hf_part(s, page, header)?
+            id
         }
         None => {
             let focus = s.sel.focus.clone();

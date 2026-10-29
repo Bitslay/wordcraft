@@ -494,3 +494,11 @@ fn link_to_previous_is_idempotent_when_explicitly_setting_same_state() {
     let text = s.doc.plain_text(StoryRef::Part(after_part));
     assert!(text.contains("Custom Content"));
 }
+
+#[test]
+fn edit_header_with_invalid_page_preserves_page_hint() {
+    let mut s = Session::new(wordcraft_doc::Document::new());
+    s.page_hint = 0;
+    assert!(s.run("insert.editHeader", &json!({"page": 999})).is_err());
+    assert_eq!(s.page_hint, 0, "page_hint must not be modified when page lookup fails");
+}
