@@ -354,3 +354,65 @@ fn date_pictures() {
     assert_eq!(date_picture(r#"TIME \@ HH:mm"#).as_deref(), Some("HH:mm"));
     assert_eq!(date_picture("DATE"), None);
 }
+
+/// #4847 & #3639: Unlinking a header in Section 2 allows it to be edited independently
+/// without altering Section 1's header; re-linking restores inheritance from Section 1.
+/// Also verifies that commands executed while in a header story correctly target Section 2
+/// instead of corrupting Section 1 (#3639).
+#[test]
+fn link_to_previous_unlinks_and_relinks_across_sections() {
+    let mut s = Session::new(wordcraft_doc::Document::new());
+    s.run("text.insert", &json!({"text": "Section 1 text"})).unwrap();
+    s.run("insert.header", &json!({"text": "Header 1"})).unwrap();
+    s.run("insert.closeHeader", &json!({})).unwrap();
+
+    // Insert section break (next page)
+    s.run("layout.break", &json!({"kind": "nextPage"})).unwrap();
+    s.run("text.insert", &json!({"text": "Section 2 text"})).unwrap();
+
+    assert_eq!(s.doc.sections().len(), 2);
+    // Section 1 cannot link to previous
+    s.run("caret.docStart", &json!({})).unwrap();
+    assert!(s.run("layout.linkToPrevious", &json!({})).is_err());
+
+    // Section 2 starts out linked to Section 1
+    s.run("caret.docEnd", &json!({})).unwrap();
+    assert!(crate::cmd::page::is_hf_linked(&s));
+
+    // Edit header on page 1 (which is Section 2)
+    s.run("insert.editHeader", &json!({"page": 1})).unwrap();
+    assert_eq!(crate::cmd::page::section_index_for_hf(&s), 1);
+
+    // #3639: hf.position from Section 2's header modifies Section 2, not Section 1
+    s.run("hf.position", &json!({"header": 45.0})).unwrap();
+    assert_ne!(s.doc.sections()[0].1.header, 45.0, "section 1 header distance must not change");
+    assert_eq!(s.doc.last_section.header, 45.0, "section 2 header distance changed");
+
+    // Unlink Section 2's header
+    let res = s.run("layout.linkToPrevious", &json!({"linked": false})).unwrap();
+    assert_eq!(res["linked"], false);
+    assert!(!crate::cmd::page::is_hf_linked(&s));
+
+    // Modify Section 2's header text
+    s.run("select.all", &json!({})).unwrap();
+    s.run("text.insert", &json!({"text": "Header 2 Independent"})).unwrap();
+    s.run("insert.closeHeader", &json!({})).unwrap();
+
+    // Section 1's header should still be "Header 1"
+    let s1_header_id = s.doc.sections()[0].1.headers.default.unwrap();
+    let s1_text = s.doc.plain_text(StoryRef::Part(s1_header_id));
+    assert!(s1_text.contains("Header 1"), "section 1 header was preserved: {s1_text}");
+
+    // Section 2's header is "Header 2 Independent"
+    let s2_header_id = s.doc.last_section.headers.default.unwrap();
+    assert_ne!(s1_header_id, s2_header_id);
+    let s2_text = s.doc.plain_text(StoryRef::Part(s2_header_id));
+    assert!(s2_text.contains("Header 2 Independent"), "section 2 header changed: {s2_text}");
+
+    // Now re-link Section 2's header to previous
+    s.run("insert.editHeader", &json!({"page": 1})).unwrap();
+    let res = s.run("layout.linkToPrevious", &json!({"linked": true})).unwrap();
+    assert_eq!(res["linked"], true);
+    assert!(crate::cmd::page::is_hf_linked(&s));
+    assert_eq!(s.doc.last_section.headers.default, None);
+}

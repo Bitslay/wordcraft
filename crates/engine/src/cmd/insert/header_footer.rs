@@ -7,7 +7,7 @@ use super::{
 /// even page or the default), made when there is none: with Different First Page on, a header
 /// inserted on page 1 is the one page 1 shows (#2826).
 pub(super) fn hf_part(s: &mut Session, header: bool) -> u32 {
-    let block = s.sel.focus.path.0.first().copied().unwrap_or(0) as usize;
+    let si = crate::cmd::page::section_index_for_hf(s);
     let layout = s.layout();
     let page = if s.sel.focus.story == StoryRef::Body { layout.page_of(&s.sel.focus) } else { Some(s.page_hint) };
     let slot = page.and_then(|pg| layout.pages.get(pg)).map(|pg| pg.hf_slot).unwrap_or_default();
@@ -18,24 +18,24 @@ pub(super) fn hf_part(s: &mut Session, header: bool) -> u32 {
             wordcraft_layout::HfSlot::Default => &mut set.default,
         }
     }
-    let mut sect = s.doc.section_mut(block).clone();
+    let mut sect = s.doc.section_mut_at(si).clone();
     let existing = *slot_of(slot, if header { &mut sect.headers } else { &mut sect.footers });
     if let Some(id) = existing.filter(|id| s.doc.parts.contains_key(id)) {
         return id;
     }
     let style = if header { "Header" } else { "Footer" };
     let id = s.doc.add_part(if header { PartKind::Header } else { PartKind::Footer }, vec![para_block(Paragraph::new().styled(style))]);
-    let sect = s.doc.section_mut(block);
+    let sect = s.doc.section_mut_at(si);
     *slot_of(slot, if header { &mut sect.headers } else { &mut sect.footers }) = Some(id);
     id
 }
 
 /// Three independently editable cells spanning the section's text width.
 fn three_column_hf(s: &Session, style: &str) -> wordcraft_doc::Blocks {
-    let block = s.sel.focus.path.0.first().copied().unwrap_or(0) as usize;
+    let si = crate::cmd::page::section_index_for_hf(s);
     // The section `section_mut` would pick, read without making anything unique.
     let sections = s.doc.sections();
-    let own = sections.iter().position(|(end, _)| block <= *end).filter(|i| i + 1 < sections.len()).and_then(|i| sections.get(i));
+    let own = sections.get(si);
     let width = own.map_or_else(|| s.doc.last_section.text_width(), |(_, sec)| sec.text_width());
     let mut table = Table::new(1, 3, width);
     table.props.style = Some("TableNormal".into());
@@ -98,14 +98,8 @@ pub(super) fn edit_hf(s: &mut Session, v: &Value, header: bool) -> CmdResult {
     let shown = match page {
         Some(page) => shown_hf(s, page, header)?,
         None => {
-            let block = s.sel.focus.path.0.first().copied().unwrap_or(0) as usize;
-            let set = s
-                .doc
-                .sections()
-                .into_iter()
-                .find(|(end, _)| block <= *end)
-                .or_else(|| s.doc.sections().pop())
-                .map(|(_, sp)| if header { sp.headers.default } else { sp.footers.default });
+            let si = crate::cmd::page::section_index_for_hf(s);
+            let set = s.doc.sections().get(si).map(|(_, sp)| if header { sp.headers.default } else { sp.footers.default });
             set.flatten().filter(|id| s.doc.parts.contains_key(id))
         }
     };
