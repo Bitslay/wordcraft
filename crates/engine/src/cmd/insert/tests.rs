@@ -502,3 +502,64 @@ fn edit_header_with_invalid_page_preserves_page_hint() {
     assert!(s.run("insert.editHeader", &json!({"page": 999})).is_err());
     assert_eq!(s.page_hint, 0, "page_hint must not be modified when page lookup fails");
 }
+
+#[test]
+fn hf_nav_synchronizes_page_hint() {
+    let mut s = Session::new(wordcraft_doc::Document::new());
+    s.run("text.insert", &json!({"text": "Section 1"})).unwrap();
+    s.run("insert.header", &json!({"text": "Header 1"})).unwrap();
+    s.run("insert.closeHeader", &json!({})).unwrap();
+
+    s.run("layout.break", &json!({"kind": "nextPage"})).unwrap();
+    s.run("text.insert", &json!({"text": "Section 2"})).unwrap();
+    s.run("layout.linkToPrevious", &json!({"linked": false})).unwrap();
+    s.run("insert.editHeader", &json!({"page": 1})).unwrap();
+    s.run("select.all", &json!({})).unwrap();
+    s.run("text.insert", &json!({"text": "Header 2"})).unwrap();
+
+    // Start in Header 1 (page 0)
+    s.run("insert.editHeader", &json!({"page": 0})).unwrap();
+    assert_eq!(s.page_hint, 0);
+
+    // Navigate to next header
+    s.run("hf.next", &json!({})).unwrap();
+    assert_eq!(s.page_hint, 1, "page_hint must synchronize with destination page in hf_nav");
+}
+
+#[test]
+fn even_page_without_even_header_reuses_default() {
+    let mut s = Session::new(wordcraft_doc::Document::new());
+    s.run("layout.differentOddEven", &json!({"value": true})).unwrap();
+    s.run("text.insert", &json!({"text": "Page 1"})).unwrap();
+    s.run("insert.header", &json!({"text": "Default Header"})).unwrap();
+    s.run("insert.closeHeader", &json!({})).unwrap();
+
+    // Page break to Page 2 (even page)
+    s.run("insert.pageBreak", &json!({})).unwrap();
+    s.run("text.insert", &json!({"text": "Page 2"})).unwrap();
+
+    // hf_part for even page should resolve to default header when even header is unset
+    let part_id = super::header_footer::hf_part(&mut s, true);
+    assert_eq!(Some(part_id), s.doc.last_section.headers.default);
+    assert_eq!(s.doc.last_section.headers.even, None);
+}
+
+#[test]
+fn is_hf_linked_uses_caret_page_slot() {
+    let mut s = Session::new(wordcraft_doc::Document::new());
+    s.run("text.insert", &json!({"text": "Section 1"})).unwrap();
+    s.run("layout.break", &json!({"kind": "nextPage"})).unwrap();
+    s.run("text.insert", &json!({"text": "Section 2"})).unwrap();
+
+    // Enable Different First Page on Section 2
+    s.run("layout.differentFirstPage", &json!({"value": true})).unwrap();
+
+    // Unlink default header on Section 2
+    s.doc.last_section.headers.default = Some(s.doc.add_part(wordcraft_doc::PartKind::Header, vec![]));
+    s.doc.last_section.headers.first = None; // First page is still linked
+
+    // Caret is on Section 2's first page (which is page 1)
+    s.run("caret.docEnd", &json!({})).unwrap();
+    s.layout();
+    assert!(crate::cmd::page::is_hf_linked(&s), "is_hf_linked must check first-page slot for caret on first page");
+}

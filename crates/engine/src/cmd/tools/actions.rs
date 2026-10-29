@@ -156,6 +156,19 @@ pub(super) fn hf_nav(s: &mut Session, dir: i32) -> CmdResult {
     let i = ids.iter().position(|x| *x == cur).unwrap_or(0) as i32;
     let n = ids.len().max(1) as i32;
     let next = ids.get(((i + dir).rem_euclid(n)) as usize).copied().unwrap_or(cur);
+    let layout = s.layout();
+    if let Some(pg_idx) = layout.pages.iter().position(|pg| pg.header_story == Some(next) || pg.footer_story == Some(next)) {
+        s.page_hint = pg_idx;
+    } else {
+        let target_sec = s.doc.sections().iter().position(|(_, sec)| {
+            [sec.headers.default, sec.headers.first, sec.headers.even, sec.footers.default, sec.footers.first, sec.footers.even].contains(&Some(next))
+        });
+        if let Some(sec_idx) = target_sec
+            && let Some(pg_idx) = layout.pages.iter().position(|pg| pg.section == sec_idx)
+        {
+            s.page_hint = pg_idx;
+        }
+    }
     s.sel = Selection::caret(s.doc.start_of(StoryRef::Part(next)));
     sel_result(s)
 }

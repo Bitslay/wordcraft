@@ -266,14 +266,15 @@ pub fn is_hf_linked(s: &Session) -> bool {
         wordcraft_doc::StoryRef::Part(id) => s.doc.parts.get(&id).map(|p| !matches!(p.kind, wordcraft_doc::PartKind::Footer)).unwrap_or(true),
         _ => true,
     };
-    let slot = if s.sel.focus.story == wordcraft_doc::StoryRef::Body {
-        wordcraft_layout::HfSlot::Default
-    } else {
-        s.current_layout().and_then(|l| l.pages.get(s.page_hint).map(|pg| pg.hf_slot)).unwrap_or(wordcraft_layout::HfSlot::Default)
-    };
-
     let sections = s.doc.sections();
     let Some((_, sp)) = sections.get(si) else { return false };
+    let slot = s
+        .current_layout()
+        .and_then(|l| {
+            let page = if s.sel.focus.story == wordcraft_doc::StoryRef::Body { l.page_of(&s.sel.focus).unwrap_or(s.page_hint) } else { s.page_hint };
+            l.pages.get(page).map(|pg| pg.hf_slot)
+        })
+        .unwrap_or(if sp.title_page { wordcraft_layout::HfSlot::First } else { wordcraft_layout::HfSlot::Default });
     let set = if header { &sp.headers } else { &sp.footers };
     match slot {
         wordcraft_layout::HfSlot::First => set.first.is_none(),
