@@ -563,3 +563,58 @@ fn is_hf_linked_uses_caret_page_slot() {
     s.layout();
     assert!(crate::cmd::page::is_hf_linked(&s), "is_hf_linked must check first-page slot for caret on first page");
 }
+
+#[test]
+fn even_page_resolves_inherited_even_header_before_default() {
+    let mut s = Session::new(wordcraft_doc::Document::new());
+    s.run("layout.differentOddEven", &json!({"value": true})).unwrap();
+    s.run("text.insert", &json!({"text": "Sec 1 Page 1"})).unwrap();
+    s.run("insert.header", &json!({"text": "S1 Default"})).unwrap();
+    s.run("insert.closeHeader", &json!({})).unwrap();
+
+    // S1 Page 2 (even) has its own even header
+    s.run("insert.pageBreak", &json!({})).unwrap();
+    s.run("text.insert", &json!({"text": "Sec 1 Page 2"})).unwrap();
+    let s1_even_id = s.doc.add_part(wordcraft_doc::PartKind::Header, vec![]);
+    s.doc.section_mut_at(0).headers.even = Some(s1_even_id);
+
+    // Section 2: unlinked default header, but even header linked (None)
+    s.run("layout.break", &json!({"kind": "nextPage"})).unwrap();
+    s.run("text.insert", &json!({"text": "Sec 2 Page 3"})).unwrap();
+    s.run("layout.linkToPrevious", &json!({"linked": false})).unwrap();
+    s.run("insert.editHeader", &json!({"page": 2})).unwrap();
+    s.run("select.all", &json!({})).unwrap();
+    s.run("text.insert", &json!({"text": "S2 Default"})).unwrap();
+    s.run("insert.closeHeader", &json!({})).unwrap();
+
+    // Section 2 Page 4 (even page in section 2)
+    s.run("insert.pageBreak", &json!({})).unwrap();
+    s.run("text.insert", &json!({"text": "Sec 2 Page 4"})).unwrap();
+
+    assert_eq!(s.doc.last_section.headers.even, None);
+
+    s.page_hint = 3;
+    let part_id = super::header_footer::hf_part(&mut s, true);
+    assert_eq!(part_id, s1_even_id, "even page must resolve inherited even header instead of own default");
+}
+
+#[test]
+fn hf_nav_preserves_page_hint_for_inherited_part() {
+    let mut s = Session::new(wordcraft_doc::Document::new());
+    s.run("text.insert", &json!({"text": "Section 1"})).unwrap();
+    s.run("insert.header", &json!({"text": "Header 1"})).unwrap();
+    s.run("insert.footer", &json!({"text": "Footer 1"})).unwrap();
+    s.run("insert.closeHeader", &json!({})).unwrap();
+
+    // Section 2 (inherits Header 1 and Footer 1)
+    s.run("layout.break", &json!({"kind": "nextPage"})).unwrap();
+    s.run("text.insert", &json!({"text": "Section 2"})).unwrap();
+
+    let footer_id = s.doc.sections()[0].1.footers.default.unwrap();
+    s.page_hint = 1;
+    s.sel = Selection::caret(s.doc.start_of(StoryRef::Part(footer_id)));
+
+    // Navigate to previous part (which cycles to Header 1)
+    s.run("hf.previous", &json!({})).unwrap();
+    assert_eq!(s.page_hint, 1, "page_hint must be preserved on Section 2 when moving between inherited parts");
+}

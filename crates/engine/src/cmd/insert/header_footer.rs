@@ -25,13 +25,10 @@ pub(super) fn hf_part(s: &mut Session, header: bool) -> u32 {
             wordcraft_layout::HfSlot::Default => &mut set.default,
         }
     }
-    let effective_slot = |set: &wordcraft_doc::section::HeaderSet| {
-        if slot == wordcraft_layout::HfSlot::Even { slot_of(slot, set).or(set.default) } else { slot_of(slot, set) }
-    };
     let sections = s.doc.sections();
     let own_slot = sections.get(si).and_then(|(_, sp)| {
         let set = if header { &sp.headers } else { &sp.footers };
-        effective_slot(set)
+        slot_of(slot, set)
     });
 
     if let Some(id) = own_slot {
@@ -45,14 +42,39 @@ pub(super) fn hf_part(s: &mut Session, header: bool) -> u32 {
         return new_id;
     }
 
-    // This section has no part in this slot (linked to previous): resolve inherited part
-    for prev_i in (0..si).rev() {
-        if let Some((_, sp)) = sections.get(prev_i) {
-            let set = if header { &sp.headers } else { &sp.footers };
-            if let Some(id) = effective_slot(set).filter(|id| s.doc.parts.contains_key(id)) {
-                return id;
+    // This section has no part in this slot (linked to previous): resolve inherited part.
+    // For even slots, resolve an inherited even slot across sections before falling back to default.
+    let resolve_preceding = |target_slot: wordcraft_layout::HfSlot| {
+        for prev_i in (0..si).rev() {
+            if let Some((_, sp)) = sections.get(prev_i) {
+                let set = if header { &sp.headers } else { &sp.footers };
+                if let Some(id) = slot_of(target_slot, set).filter(|id| s.doc.parts.contains_key(id)) {
+                    return Some(id);
+                }
             }
         }
+        None
+    };
+
+    let inherited = if slot == wordcraft_layout::HfSlot::Even {
+        resolve_preceding(wordcraft_layout::HfSlot::Even).or_else(|| {
+            // If no preceding section defines even, fall back to resolved default (own section or preceding)
+            for prev_i in (0..=si).rev() {
+                if let Some((_, sp)) = sections.get(prev_i) {
+                    let set = if header { &sp.headers } else { &sp.footers };
+                    if let Some(id) = set.default.filter(|id| s.doc.parts.contains_key(id)) {
+                        return Some(id);
+                    }
+                }
+            }
+            None
+        })
+    } else {
+        resolve_preceding(slot)
+    };
+
+    if let Some(id) = inherited {
+        return id;
     }
 
     // No preceding section defines one either: create in section 0 so all linked sections inherit it
@@ -142,22 +164,27 @@ pub(super) fn edit_hf(s: &mut Session, v: &Value, header: bool) -> CmdResult {
             let si = crate::cmd::page::section_index_for_hf(s);
             let slot = s.current_layout().and_then(|l| l.pages.get(s.page_hint).map(|pg| pg.hf_slot)).unwrap_or_default();
             let sections = s.doc.sections();
-            let mut found = None;
-            for prev_i in (0..=si).rev() {
-                if let Some((_, sp)) = sections.get(prev_i) {
-                    let set = if header { &sp.headers } else { &sp.footers };
-                    let id = match slot {
-                        wordcraft_layout::HfSlot::First => set.first,
-                        wordcraft_layout::HfSlot::Even => set.even.or(set.default),
-                        wordcraft_layout::HfSlot::Default => set.default,
-                    };
-                    if let Some(id) = id.filter(|id| s.doc.parts.contains_key(id)) {
-                        found = Some(id);
-                        break;
+            let resolve_slot = |target_slot: wordcraft_layout::HfSlot| {
+                for prev_i in (0..=si).rev() {
+                    if let Some((_, sp)) = sections.get(prev_i) {
+                        let set = if header { &sp.headers } else { &sp.footers };
+                        let id = match target_slot {
+                            wordcraft_layout::HfSlot::First => set.first,
+                            wordcraft_layout::HfSlot::Even => set.even,
+                            wordcraft_layout::HfSlot::Default => set.default,
+                        };
+                        if let Some(id) = id.filter(|id| s.doc.parts.contains_key(id)) {
+                            return Some(id);
+                        }
                     }
                 }
+                None
+            };
+            if slot == wordcraft_layout::HfSlot::Even {
+                resolve_slot(wordcraft_layout::HfSlot::Even).or_else(|| resolve_slot(wordcraft_layout::HfSlot::Default))
+            } else {
+                resolve_slot(slot)
             }
-            found
         }
     };
     if let Some(page) = page {
