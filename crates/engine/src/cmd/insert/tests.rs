@@ -416,3 +416,50 @@ fn link_to_previous_unlinks_and_relinks_across_sections() {
     assert!(crate::cmd::page::is_hf_linked(&s));
     assert_eq!(s.doc.last_section.headers.default, None);
 }
+
+#[test]
+fn insert_header_in_linked_section_preserves_link_and_targets_inherited() {
+    let mut s = Session::new(wordcraft_doc::Document::new());
+    s.run("text.insert", &json!({"text": "Section 1"})).unwrap();
+    s.run("insert.header", &json!({"text": "Header 1"})).unwrap();
+    s.run("insert.closeHeader", &json!({})).unwrap();
+
+    // Section break to create Section 2
+    s.run("layout.break", &json!({"kind": "nextPage"})).unwrap();
+    s.run("text.insert", &json!({"text": "Section 2"})).unwrap();
+    assert!(crate::cmd::page::is_hf_linked(&s));
+    assert_eq!(s.doc.last_section.headers.default, None);
+
+    // Running insert.header while in Section 2 should resolve the inherited header, not unlink Section 2
+    s.run("insert.header", &json!({"text": "Header 1 Updated"})).unwrap();
+    assert!(crate::cmd::page::is_hf_linked(&s));
+    assert_eq!(s.doc.last_section.headers.default, None, "Section 2 must not be silently unlinked");
+
+    let s1_header_id = s.doc.sections()[0].1.headers.default.unwrap();
+    let s1_text = s.doc.plain_text(StoryRef::Part(s1_header_id));
+    assert!(s1_text.contains("Header 1 Updated"));
+}
+
+#[test]
+fn relinking_when_previous_has_no_header_moves_caret_to_body() {
+    let mut s = Session::new(wordcraft_doc::Document::new());
+    s.run("text.insert", &json!({"text": "Section 1 without header"})).unwrap();
+
+    // Section break to Section 2 (neither section has a header yet)
+    s.run("layout.break", &json!({"kind": "nextPage"})).unwrap();
+    s.run("text.insert", &json!({"text": "Section 2"})).unwrap();
+
+    // Unlink Section 2 and give it a header
+    s.run("layout.linkToPrevious", &json!({"linked": false})).unwrap();
+    assert!(!crate::cmd::page::is_hf_linked(&s));
+    s.run("insert.editHeader", &json!({})).unwrap();
+    let s2_id = s.doc.last_section.headers.default.unwrap();
+    assert!(matches!(s.sel.focus.story, StoryRef::Part(id) if id == s2_id));
+
+    // Re-link Section 2 to previous: previous has no header, so caret moves back to Body
+    let res = s.run("layout.linkToPrevious", &json!({"linked": true})).unwrap();
+    assert_eq!(res["linked"], true);
+    assert!(crate::cmd::page::is_hf_linked(&s));
+    assert_eq!(s.doc.last_section.headers.default, None);
+    assert_eq!(s.sel.focus.story, StoryRef::Body, "caret must not be orphaned in cleared part");
+}

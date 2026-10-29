@@ -291,10 +291,13 @@ pub fn specs() -> Vec<CommandSpec> {
                         }
                     }
                 }
-                if let Some(id) = inherited_id
-                    && matches!(s.sel.focus.story, StoryRef::Part(_))
-                {
-                    s.sel = Selection::caret(s.doc.end_of(StoryRef::Part(id)));
+                if matches!(s.sel.focus.story, StoryRef::Part(_)) {
+                    if let Some(id) = inherited_id {
+                        s.sel = Selection::caret(s.doc.end_of(StoryRef::Part(id)));
+                    } else {
+                        let back = s.hf_return.take();
+                        s.sel = back.unwrap_or_else(|| Selection::caret(s.doc.start_of(StoryRef::Body)));
+                    }
                 }
                 s.touch();
                 Ok(json!({"linked": true, "section": si, "header": header}))
