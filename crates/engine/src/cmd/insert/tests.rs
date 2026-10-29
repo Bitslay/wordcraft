@@ -463,3 +463,34 @@ fn relinking_when_previous_has_no_header_moves_caret_to_body() {
     assert_eq!(s.doc.last_section.headers.default, None);
     assert_eq!(s.sel.focus.story, StoryRef::Body, "caret must not be orphaned in cleared part");
 }
+
+#[test]
+fn link_to_previous_is_idempotent_when_explicitly_setting_same_state() {
+    let mut s = Session::new(wordcraft_doc::Document::new());
+    s.run("text.insert", &json!({"text": "Section 1"})).unwrap();
+    s.run("insert.header", &json!({"text": "Header 1"})).unwrap();
+    s.run("insert.closeHeader", &json!({})).unwrap();
+
+    s.run("layout.break", &json!({"kind": "nextPage"})).unwrap();
+    s.run("text.insert", &json!({"text": "Section 2"})).unwrap();
+
+    // Explicit linked: true when already linked is a no-op
+    let res = s.run("layout.linkToPrevious", &json!({"linked": true})).unwrap();
+    assert_eq!(res["linked"], true);
+    assert!(crate::cmd::page::is_hf_linked(&s));
+
+    // Unlink Section 2
+    s.run("layout.linkToPrevious", &json!({"linked": false})).unwrap();
+    s.run("insert.editHeader", &json!({})).unwrap();
+    s.run("select.all", &json!({})).unwrap();
+    s.run("text.insert", &json!({"text": "Custom Content"})).unwrap();
+    let original_part = s.doc.last_section.headers.default.unwrap();
+
+    // Explicit linked: false again must not overwrite existing independent content
+    let res = s.run("layout.linkToPrevious", &json!({"linked": false})).unwrap();
+    assert_eq!(res["linked"], false);
+    let after_part = s.doc.last_section.headers.default.unwrap();
+    assert_eq!(original_part, after_part);
+    let text = s.doc.plain_text(StoryRef::Part(after_part));
+    assert!(text.contains("Custom Content"));
+}

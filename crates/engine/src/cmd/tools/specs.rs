@@ -274,6 +274,9 @@ pub fn specs() -> Vec<CommandSpec> {
             };
 
             let target_linked = p::bool(v, "linked").unwrap_or(!currently_linked);
+            if target_linked == currently_linked {
+                return Ok(json!({"linked": currently_linked, "section": si, "header": header}));
+            }
 
             if target_linked {
                 let sect = s.doc.section_mut_at(si);
